@@ -1,0 +1,148 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: camel-producer
+  datasource:
+    url: jdbc:postgresql://localhost:5432/camel_cluster
+    username: camel_user
+    password: camel_pass
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  activemq:
+    broker-url: tcp://localhost:61616
+    user: admin
+    password: admin
+    pool:
+      enabled: true
+      max-connections: 10
+
+# Cluster Configuration
+cluster:
+  name: camel-cluster
+  node:
+    id: producer-1
+    type: producer
+  hazelcast:
+    port: 5701
+    members:
+      - localhost:5701
+      - localhost:5702
+      - localhost:5703
+
+camel:
+  springboot:
+    name: camel-producer-context
+  component:
+    activemq:
+      broker-url: tcp://localhost:61616
+      username: admin
+      password: admin
+
+# Producer-specific Configuration
+producer:
+  order:
+    interval: 2000  # Generate orders every 2 seconds
+  file:
+    interval: 10000 # Generate files every 10 seconds
+
+# File paths
+shared:
+  file:
+    path: shared/input
+
+# Management and Monitoring
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,routes
+  endpoint:
+    health:
+      show-details: always
+
+# Logging
+logging:
+  level:
+    com.example: DEBUG
+    org.apache.camel: INFO
+    com.hazelcast: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level [${cluster.node.id}] %logger{36} - %msg%n"
+
+---
+# Development profile
+spring:
+  config:
+    activate:
+      on-profile: dev
+server:
+  port: 8081
+cluster:
+  node:
+    id: producer-dev-1
+
+---
+# Docker profile
+spring:
+  config:
+    activate:
+      on-profile: docker
+  datasource:
+    url: jdbc:postgresql://postgres:5432/camel_cluster
+  activemq:
+    broker-url: tcp://activemq:61616
+
+camel:
+  component:
+    activemq:
+      broker-url: tcp://activemq:61616
+
+cluster:
+  hazelcast:
+    members:
+      - producer:5701
+      - consumer:5702
+      - coordinator:5703
+
+shared:
+  file:
+    path: /app/shared/input
+
+---
+# Production profile
+spring:
+  config:
+    activate:
+      on-profile: prod
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://postgres:5432/camel_cluster}
+    username: ${DATABASE_USER:camel_user}
+    password: ${DATABASE_PASSWORD:camel_pass}
+  activemq:
+    broker-url: ${ACTIVEMQ_URL:tcp://activemq:61616}
+    user: ${ACTIVEMQ_USER:admin}
+    password: ${ACTIVEMQ_PASSWORD:admin}
+
+cluster:
+  node:
+    id: ${NODE_ID:producer-1}
+  hazelcast:
+    members: ${CLUSTER_MEMBERS:producer:5701,consumer:5702,coordinator:5703}
+
+producer:
+  order:
+    interval: ${ORDER_INTERVAL:2000}
+  file:
+    interval: ${FILE_INTERVAL:10000}
+
+logging:
+  level:
+    com.example: ${LOG_LEVEL:INFO} 

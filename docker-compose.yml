@@ -1,0 +1,209 @@
+version: '3.8'
+
+services:
+  # ActiveMQ Artemis for messaging
+  activemq:
+    image: apache/activemq-artemis:latest
+    container_name: activemq
+    ports:
+      - "61616:61616"  # AMQP port
+      - "8161:8161"    # Web console
+    environment:
+      ARTEMIS_USER: admin
+      ARTEMIS_PASSWORD: admin
+    networks:
+      - camel-cluster-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8161 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # PostgreSQL database
+  postgres:
+    image: postgres:15
+    container_name: postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: camel_cluster
+      POSTGRES_USER: camel_user
+      POSTGRES_PASSWORD: camel_pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - camel-cluster-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U camel_user -d camel_cluster"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Producer instance
+  producer:
+    build: 
+      context: .
+      dockerfile: camel-producer/Dockerfile
+    container_name: producer
+    ports:
+      - "8081:8081"
+    environment:
+      - CLUSTER_NODE_ID=producer-1
+      - CLUSTER_NODE_TYPE=producer
+      - HAZELCAST_PORT=5701
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/camel_cluster
+      - SPRING_DATASOURCE_USERNAME=camel_user
+      - SPRING_DATASOURCE_PASSWORD=camel_pass
+      - SPRING_ACTIVEMQ_BROKER_URL=tcp://activemq:61616
+      - SPRING_ACTIVEMQ_USER=admin
+      - SPRING_ACTIVEMQ_PASSWORD=admin
+      - JAVA_OPTS=-Xms256m -Xmx512m -XX:+UseG1GC
+    volumes:
+      - shared_files:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      activemq:
+        condition: service_healthy
+    networks:
+      - camel-cluster-network
+    restart: unless-stopped
+
+  # Consumer instances
+  consumer1:
+    build:
+      context: .
+      dockerfile: camel-consumer/Dockerfile
+    container_name: consumer1
+    ports:
+      - "8082:8082"
+    environment:
+      - CLUSTER_NODE_ID=consumer-1
+      - CLUSTER_NODE_TYPE=consumer
+      - HAZELCAST_PORT=5702
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/camel_cluster
+      - SPRING_DATASOURCE_USERNAME=camel_user
+      - SPRING_DATASOURCE_PASSWORD=camel_pass
+      - SPRING_ACTIVEMQ_BROKER_URL=tcp://activemq:61616
+      - SPRING_ACTIVEMQ_USER=admin
+      - SPRING_ACTIVEMQ_PASSWORD=admin
+      - JAVA_OPTS=-Xms512m -Xmx1024m -XX:+UseG1GC
+    volumes:
+      - shared_files:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      activemq:
+        condition: service_healthy
+    networks:
+      - camel-cluster-network
+    restart: unless-stopped
+
+  consumer2:
+    build:
+      context: .
+      dockerfile: camel-consumer/Dockerfile
+    container_name: consumer2
+    ports:
+      - "8085:8082"
+    environment:
+      - CLUSTER_NODE_ID=consumer-2
+      - CLUSTER_NODE_TYPE=consumer
+      - HAZELCAST_PORT=5703
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/camel_cluster
+      - SPRING_DATASOURCE_USERNAME=camel_user
+      - SPRING_DATASOURCE_PASSWORD=camel_pass
+      - SPRING_ACTIVEMQ_BROKER_URL=tcp://activemq:61616
+      - SPRING_ACTIVEMQ_USER=admin
+      - SPRING_ACTIVEMQ_PASSWORD=admin
+      - JAVA_OPTS=-Xms512m -Xmx1024m -XX:+UseG1GC
+    volumes:
+      - shared_files:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      activemq:
+        condition: service_healthy
+    networks:
+      - camel-cluster-network
+    restart: unless-stopped
+
+  # Coordinator instances - MULTIPLE FOR HIGH AVAILABILITY
+  coordinator1:
+    build:
+      context: .
+      dockerfile: camel-coordinator/Dockerfile
+    container_name: coordinator1
+    ports:
+      - "8083:8083"
+    environment:
+      - CLUSTER_NODE_ID=coordinator-1
+      - CLUSTER_NODE_TYPE=coordinator
+      - HAZELCAST_PORT=5704
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/camel_cluster
+      - SPRING_DATASOURCE_USERNAME=camel_user
+      - SPRING_DATASOURCE_PASSWORD=camel_pass
+      - JAVA_OPTS=-Xms256m -Xmx512m -XX:+UseG1GC
+    volumes:
+      - shared_files:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - camel-cluster-network
+    restart: unless-stopped
+
+  coordinator2:
+    build:
+      context: .
+      dockerfile: camel-coordinator/Dockerfile
+    container_name: coordinator2
+    ports:
+      - "8086:8083"
+    environment:
+      - CLUSTER_NODE_ID=coordinator-2
+      - CLUSTER_NODE_TYPE=coordinator
+      - HAZELCAST_PORT=5705
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/camel_cluster
+      - SPRING_DATASOURCE_USERNAME=camel_user
+      - SPRING_DATASOURCE_PASSWORD=camel_pass
+      - JAVA_OPTS=-Xms256m -Xmx512m -XX:+UseG1GC
+    volumes:
+      - shared_files:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - camel-cluster-network
+    restart: unless-stopped
+
+  # Load balancer for consumer REST endpoints
+  nginx:
+    image: nginx:alpine
+    container_name: nginx-lb
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - consumer1
+      - consumer2
+    networks:
+      - camel-cluster-network
+    restart: unless-stopped
+
+networks:
+  camel-cluster-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  shared_files:
+    driver: local 

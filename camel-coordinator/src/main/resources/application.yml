@@ -1,0 +1,227 @@
+spring:
+  application:
+    name: camel-coordinator
+  profiles:
+    active: dev
+  
+  # Database configuration
+  datasource:
+    url: jdbc:postgresql://localhost:5432/camel_cluster
+    username: camel_user
+    password: camel_pass
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  # JPA Configuration
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        show_sql: false
+    show-sql: false
+
+  # Web configuration
+  mvc:
+    servlet:
+      path: /
+
+# Server configuration
+server:
+  port: 8083
+  servlet:
+    context-path: /
+
+# Management endpoints
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,routes,camelroutes
+  endpoint:
+    health:
+      show-details: always
+  health:
+    hazelcast:
+      enabled: true
+
+# Camel configuration
+camel:
+  springboot:
+    main-run-controller: true
+    shutdown-timeout: 30
+  cluster:
+    file:
+      enabled: true
+  component:
+    hazelcast:
+      cluster-service:
+        enabled: true
+
+# Cluster configuration
+cluster:
+  node:
+    id: coordinator-1
+    type: coordinator
+  monitor:
+    health-check-interval: 30000
+    node-timeout: 60000
+  hazelcast:
+    cluster-name: camel-cluster
+    network:
+      port: 5703
+      port-auto-increment: true
+      port-count: 100
+    tcp-ip:
+      enabled: true
+      members:
+        - 127.0.0.1:5701
+        - 127.0.0.1:5702
+        - 127.0.0.1:5703
+
+# Coordinator specific configuration
+coordinator:
+  health-check:
+    interval: 30000
+  metrics:
+    interval: 60000
+  reports:
+    cleanup-days: 30
+    batch-size: 1000
+  database:
+    cleanup-enabled: true
+    reporting-enabled: true
+
+# Logging configuration
+logging:
+  level:
+    com.example.coordinator: INFO
+    com.example.common: INFO
+    org.apache.camel: WARN
+    com.hazelcast: WARN
+    org.springframework: WARN
+    root: INFO
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level [%logger{36}] - %msg%n"
+
+---
+# Docker profile
+spring:
+  profiles: docker
+  datasource:
+    url: jdbc:postgresql://postgres:5432/camel_cluster
+    username: camel_user
+    password: camel_pass
+
+cluster:
+  node:
+    id: coordinator-docker-1
+  hazelcast:
+    tcp-ip:
+      members:
+        - camel-producer-1:5701
+        - camel-producer-2:5701
+        - camel-consumer-1:5702
+        - camel-consumer-2:5702
+        - camel-consumer-3:5702
+        - camel-coordinator-1:5703
+
+server:
+  port: 8080
+
+logging:
+  level:
+    com.example.coordinator: DEBUG
+    com.example.common: DEBUG
+
+---
+# Production profile
+spring:
+  profiles: prod
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://postgres:5432/camel_cluster}
+    username: ${DATABASE_USER:camel_user}
+    password: ${DATABASE_PASSWORD:camel_pass}
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+
+cluster:
+  node:
+    id: ${CLUSTER_NODE_ID:coordinator-prod-1}
+  monitor:
+    health-check-interval: 15000
+    node-timeout: 30000
+  hazelcast:
+    tcp-ip:
+      members: ${CLUSTER_MEMBERS:localhost:5701,localhost:5702,localhost:5703}
+
+coordinator:
+  health-check:
+    interval: 15000
+  metrics:
+    interval: 30000
+  reports:
+    cleanup-days: ${CLEANUP_DAYS:30}
+    batch-size: ${BATCH_SIZE:1000}
+
+server:
+  port: ${SERVER_PORT:8080}
+
+logging:
+  level:
+    com.example.coordinator: INFO
+    com.example.common: INFO
+    org.apache.camel: WARN
+    com.hazelcast: WARN
+    root: WARN
+
+---
+# Test profile
+spring:
+  profiles: test
+  datasource:
+    url: jdbc:h2:mem:testdb
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: 
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    database-platform: org.hibernate.dialect.H2Dialect
+
+cluster:
+  node:
+    id: coordinator-test-1
+  monitor:
+    health-check-interval: 5000
+    node-timeout: 10000
+  hazelcast:
+    tcp-ip:
+      members:
+        - 127.0.0.1:5701
+
+coordinator:
+  health-check:
+    interval: 5000
+  metrics:
+    interval: 10000
+  reports:
+    cleanup-days: 1
+    batch-size: 100
+
+server:
+  port: 0
+
+logging:
+  level:
+    com.example.coordinator: DEBUG
+    com.example.common: DEBUG
+    org.apache.camel: DEBUG 
