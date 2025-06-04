@@ -1,6 +1,5 @@
 package com.example.producer.route;
 
-import com.example.producer.service.FileGenerator;
 import org.apache.camel.builder.RouteBuilder;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.env.Environment;
