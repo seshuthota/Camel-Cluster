@@ -1,5 +1,0 @@
-com/example/common/util/ClusterConstants.class
-com/example/common/model/Order.class
-com/example/common/config/ClusterConfig.class
-com/example/common/model/ProcessedOrder.class
-com/example/common/service/ClusterService.class

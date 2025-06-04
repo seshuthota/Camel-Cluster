@@ -1,6 +1,0 @@
-com/example/consumer/repository/ProcessedOrderRepository.class
-com/example/consumer/controller/ConsumerController.class
-com/example/consumer/service/OrderProcessor.class
-com/example/consumer/ConsumerApplication.class
-com/example/consumer/route/ConsumerRoutes.class
-com/example/consumer/service/FileProcessor.class

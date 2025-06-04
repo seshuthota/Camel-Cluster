@@ -1,6 +1,0 @@
-com/example/coordinator/route/CoordinatorRoutes.class
-com/example/coordinator/controller/CoordinatorController.class
-com/example/coordinator/repository/ProcessedOrderRepository.class
-com/example/coordinator/CoordinatorApplication.class
-com/example/coordinator/service/ClusterMonitor.class
-com/example/coordinator/service/DatabaseReporter.class
