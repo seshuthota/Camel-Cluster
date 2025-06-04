@@ -4,9 +4,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.core.ParameterizedTypeReference;
 
-import javax.annotation.PostConstruct;
+import jakarta.annotation.PostConstruct;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -46,7 +47,9 @@ public class ServiceDiscovery {
     @Value("${hazelcast.port:5701}")
     private int hazelcastPort;
 
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final WebClient webClient = WebClient.builder()
+        .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(1024 * 1024))
+        .build();
     private final Map<String, ServiceInstance> cachedServices = new HashMap<>();
     private Timer refreshTimer;
 
@@ -160,7 +163,12 @@ public class ServiceDiscovery {
             );
 
             String url = consulUrl + "/v1/agent/service/register";
-            restTemplate.put(url, registration);
+            webClient.put()
+                .uri(url)
+                .bodyValue(registration)
+                .retrieve()
+                .toBodilessEntity()
+                .block();
             
             logger.debug("Registered with Consul: {}", registration);
 
@@ -176,8 +184,11 @@ public class ServiceDiscovery {
         try {
             String url = consulUrl + "/v1/health/service/" + consulService + "?passing=true";
             
-            @SuppressWarnings("unchecked")
-            List<Map<String, Object>> response = restTemplate.getForObject(url, List.class);
+            List<Map<String, Object>> response = webClient.get()
+                .uri(url)
+                .retrieve()
+                .bodyToMono(new ParameterizedTypeReference<List<Map<String, Object>>>() {})
+                .block();
             
             if (response != null) {
                 return response.stream()
@@ -325,7 +336,11 @@ public class ServiceDiscovery {
     private void unregisterFromConsul() {
         try {
             String url = consulUrl + "/v1/agent/service/deregister/" + nodeId;
-            restTemplate.put(url, null);
+            webClient.put()
+                .uri(url)
+                .retrieve()
+                .toBodilessEntity()
+                .block();
         } catch (Exception e) {
             logger.error("Failed to unregister from Consul", e);
         }

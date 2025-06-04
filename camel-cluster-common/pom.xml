@@ -16,6 +16,12 @@
     <description>Common utilities and configurations for Camel cluster</description>
 
     <dependencies>
+        <!-- Spring WebFlux for WebClient -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-webflux</artifactId>
+        </dependency>
+
         <!-- Jackson for JSON processing -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
