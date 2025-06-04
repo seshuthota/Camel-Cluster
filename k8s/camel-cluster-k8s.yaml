@@ -1,0 +1,417 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: camel-cluster
+---
+# ConfigMap for dynamic configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: camel-cluster-config
+  namespace: camel-cluster
+data:
+  # Dynamic discovery configuration
+  hazelcast.discovery.mode: "kubernetes"
+  hazelcast.kubernetes.enabled: "true"
+  hazelcast.kubernetes.service-name: "camel-cluster-service"
+  hazelcast.kubernetes.namespace: "camel-cluster"
+  
+  # Service discovery
+  service.discovery.enabled: "true"
+  service.discovery.type: "kubernetes"
+  
+  # Database configuration
+  spring.datasource.url: "jdbc:postgresql://postgres:5432/camel_cluster"
+  spring.activemq.broker-url: "tcp://activemq:61616"
+---
+# Headless service for Hazelcast discovery
+apiVersion: v1
+kind: Service
+metadata:
+  name: camel-cluster-service
+  namespace: camel-cluster
+  labels:
+    app: camel-cluster
+spec:
+  clusterIP: None
+  selector:
+    app: camel-cluster
+  ports:
+  - name: hazelcast
+    port: 5701
+    targetPort: 5701
+---
+# PostgreSQL StatefulSet
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: camel-cluster
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15
+        env:
+        - name: POSTGRES_DB
+          value: camel_cluster
+        - name: POSTGRES_USER
+          value: camel_user
+        - name: POSTGRES_PASSWORD
+          value: camel_pass
+        ports:
+        - containerPort: 5432
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+  - metadata:
+      name: postgres-storage
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: camel-cluster
+spec:
+  selector:
+    app: postgres
+  ports:
+  - port: 5432
+    targetPort: 5432
+---
+# ActiveMQ Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: activemq
+  namespace: camel-cluster
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: activemq
+  template:
+    metadata:
+      labels:
+        app: activemq
+    spec:
+      containers:
+      - name: activemq
+        image: apache/activemq-artemis:latest
+        env:
+        - name: ARTEMIS_USER
+          value: admin
+        - name: ARTEMIS_PASSWORD
+          value: admin
+        ports:
+        - containerPort: 61616
+        - containerPort: 8161
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: activemq
+  namespace: camel-cluster
+spec:
+  selector:
+    app: activemq
+  ports:
+  - name: amqp
+    port: 61616
+    targetPort: 61616
+  - name: web
+    port: 8161
+    targetPort: 8161
+---
+# Producer Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: camel-producer
+  namespace: camel-cluster
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: camel-cluster
+      component: producer
+  template:
+    metadata:
+      labels:
+        app: camel-cluster
+        component: producer
+    spec:
+      serviceAccountName: camel-cluster-sa
+      containers:
+      - name: producer
+        image: camel-producer:latest
+        env:
+        - name: CLUSTER_NODE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: CLUSTER_NODE_TYPE
+          value: producer
+        - name: HAZELCAST_PORT
+          value: "5701"
+        - name: SPRING_PROFILES_ACTIVE
+          value: kubernetes
+        envFrom:
+        - configMapRef:
+            name: camel-cluster-config
+        ports:
+        - containerPort: 8081
+        - containerPort: 5701
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8081
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8081
+          initialDelaySeconds: 30
+          periodSeconds: 10
+---
+# Consumer Deployment with HPA
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: camel-consumer
+  namespace: camel-cluster
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: camel-cluster
+      component: consumer
+  template:
+    metadata:
+      labels:
+        app: camel-cluster
+        component: consumer
+    spec:
+      serviceAccountName: camel-cluster-sa
+      containers:
+      - name: consumer
+        image: camel-consumer:latest
+        env:
+        - name: CLUSTER_NODE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: CLUSTER_NODE_TYPE
+          value: consumer
+        - name: HAZELCAST_PORT
+          value: "5702"
+        - name: SPRING_PROFILES_ACTIVE
+          value: kubernetes
+        envFrom:
+        - configMapRef:
+            name: camel-cluster-config
+        ports:
+        - containerPort: 8082
+        - containerPort: 5702
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8082
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8082
+          initialDelaySeconds: 30
+          periodSeconds: 10
+---
+# Coordinator Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: camel-coordinator
+  namespace: camel-cluster
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: camel-cluster
+      component: coordinator
+  template:
+    metadata:
+      labels:
+        app: camel-cluster
+        component: coordinator
+    spec:
+      serviceAccountName: camel-cluster-sa
+      containers:
+      - name: coordinator
+        image: camel-coordinator:latest
+        env:
+        - name: CLUSTER_NODE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: CLUSTER_NODE_TYPE
+          value: coordinator
+        - name: HAZELCAST_PORT
+          value: "5703"
+        - name: SPRING_PROFILES_ACTIVE
+          value: kubernetes
+        envFrom:
+        - configMapRef:
+            name: camel-cluster-config
+        ports:
+        - containerPort: 8083
+        - containerPort: 5703
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8083
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8083
+          initialDelaySeconds: 30
+          periodSeconds: 10
+---
+# Service Account for Kubernetes API access
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: camel-cluster-sa
+  namespace: camel-cluster
+---
+# ClusterRole for Kubernetes discovery
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: camel-cluster-role
+rules:
+- apiGroups: [""]
+  resources: ["endpoints", "pods", "services"]
+  verbs: ["get", "list", "watch"]
+---
+# ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: camel-cluster-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: camel-cluster-role
+subjects:
+- kind: ServiceAccount
+  name: camel-cluster-sa
+  namespace: camel-cluster
+---
+# Horizontal Pod Autoscaler for Consumers
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: camel-consumer-hpa
+  namespace: camel-cluster
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: camel-consumer
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+---
+# Services for external access
+apiVersion: v1
+kind: Service
+metadata:
+  name: camel-producer-service
+  namespace: camel-cluster
+spec:
+  type: LoadBalancer
+  selector:
+    app: camel-cluster
+    component: producer
+  ports:
+  - port: 8081
+    targetPort: 8081
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: camel-consumer-service
+  namespace: camel-cluster
+spec:
+  type: LoadBalancer
+  selector:
+    app: camel-cluster
+    component: consumer
+  ports:
+  - port: 8082
+    targetPort: 8082
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: camel-coordinator-service
+  namespace: camel-cluster
+spec:
+  type: LoadBalancer
+  selector:
+    app: camel-cluster
+    component: coordinator
+  ports:
+  - port: 8083
+    targetPort: 8083 

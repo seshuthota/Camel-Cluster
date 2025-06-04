@@ -1,0 +1,156 @@
+version: '3.8'
+
+services:
+  # Consul for service discovery
+  consul:
+    image: consul:latest
+    container_name: consul
+    ports:
+      - "8500:8500"
+    environment:
+      CONSUL_BIND_INTERFACE: eth0
+    command: >
+      consul agent -server -bootstrap-expect=1 -data-dir=/consul/data
+      -ui -client=0.0.0.0 -bind=0.0.0.0
+    networks:
+      - camel-cluster-network
+    healthcheck:
+      test: ["CMD", "consul", "members"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # PostgreSQL database
+  postgres:
+    image: postgres:15
+    container_name: postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: camel_cluster
+      POSTGRES_USER: camel_user
+      POSTGRES_PASSWORD: camel_pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - camel-cluster-network
+
+  # ActiveMQ for messaging
+  activemq:
+    image: apache/activemq-artemis:latest
+    container_name: activemq
+    ports:
+      - "61616:61616"
+      - "8161:8161"
+    environment:
+      ARTEMIS_USER: admin
+      ARTEMIS_PASSWORD: admin
+    networks:
+      - camel-cluster-network
+
+  # Producer instances (can scale dynamically)
+  producer:
+    build: 
+      context: .
+      dockerfile: camel-producer/Dockerfile
+    ports:
+      - "8081:8081"
+    environment:
+      - CLUSTER_NODE_ID=producer-${HOSTNAME:-1}
+      - CLUSTER_NODE_TYPE=producer
+      - HAZELCAST_PORT=5701
+      - HAZELCAST_DISCOVERY_MODE=consul
+      - SERVICE_DISCOVERY_ENABLED=true
+      - SERVICE_DISCOVERY_TYPE=consul
+      - SERVICE_DISCOVERY_CONSUL_URL=http://consul:8500
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/camel_cluster
+      - SPRING_DATASOURCE_USERNAME=camel_user
+      - SPRING_DATASOURCE_PASSWORD=camel_pass
+      - SPRING_ACTIVEMQ_BROKER_URL=tcp://activemq:61616
+      - SPRING_ACTIVEMQ_USER=admin
+      - SPRING_ACTIVEMQ_PASSWORD=admin
+    depends_on:
+      consul:
+        condition: service_healthy
+      postgres:
+        condition: service_started
+      activemq:
+        condition: service_started
+    networks:
+      - camel-cluster-network
+    restart: unless-stopped
+
+  # Consumer instances (auto-scaling ready)
+  consumer:
+    build:
+      context: .
+      dockerfile: camel-consumer/Dockerfile
+    ports:
+      - "8082"  # Dynamic port assignment
+    environment:
+      - CLUSTER_NODE_ID=consumer-${HOSTNAME:-1}
+      - CLUSTER_NODE_TYPE=consumer
+      - HAZELCAST_PORT=5702
+      - HAZELCAST_DISCOVERY_MODE=consul
+      - SERVICE_DISCOVERY_ENABLED=true
+      - SERVICE_DISCOVERY_TYPE=consul
+      - SERVICE_DISCOVERY_CONSUL_URL=http://consul:8500
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/camel_cluster
+      - SPRING_DATASOURCE_USERNAME=camel_user
+      - SPRING_DATASOURCE_PASSWORD=camel_pass
+      - SPRING_ACTIVEMQ_BROKER_URL=tcp://activemq:61616
+      - SPRING_ACTIVEMQ_USER=admin
+      - SPRING_ACTIVEMQ_PASSWORD=admin
+    depends_on:
+      consul:
+        condition: service_healthy
+      postgres:
+        condition: service_started
+      activemq:
+        condition: service_started
+    networks:
+      - camel-cluster-network
+    restart: unless-stopped
+    deploy:
+      replicas: 2  # Start with 2, can scale up
+
+  # Coordinator instances (HA with dynamic discovery)
+  coordinator:
+    build:
+      context: .
+      dockerfile: camel-coordinator/Dockerfile
+    ports:
+      - "8083"  # Dynamic port assignment
+    environment:
+      - CLUSTER_NODE_ID=coordinator-${HOSTNAME:-1}
+      - CLUSTER_NODE_TYPE=coordinator
+      - HAZELCAST_PORT=5703
+      - HAZELCAST_DISCOVERY_MODE=consul
+      - SERVICE_DISCOVERY_ENABLED=true
+      - SERVICE_DISCOVERY_TYPE=consul
+      - SERVICE_DISCOVERY_CONSUL_URL=http://consul:8500
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/camel_cluster
+      - SPRING_DATASOURCE_USERNAME=camel_user
+      - SPRING_DATASOURCE_PASSWORD=camel_pass
+    depends_on:
+      consul:
+        condition: service_healthy
+      postgres:
+        condition: service_started
+    networks:
+      - camel-cluster-network
+    restart: unless-stopped
+    deploy:
+      replicas: 2  # HA setup
+
+networks:
+  camel-cluster-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local 

@@ -73,18 +73,27 @@ cluster:
   monitor:
     health-check-interval: 30000
     node-timeout: 60000
-  hazelcast:
-    cluster-name: camel-cluster
-    network:
-      port: 5703
-      port-auto-increment: true
-      port-count: 100
-    tcp-ip:
-      enabled: true
-      members:
-        - 127.0.0.1:5701
-        - 127.0.0.1:5702
-        - 127.0.0.1:5703
+
+# Dynamic Hazelcast Configuration
+hazelcast:
+  port: 5703
+  discovery:
+    mode: ${HAZELCAST_DISCOVERY_MODE:tcp-ip}
+  
+  # Dynamic member list (comma-separated)
+  members: ${HAZELCAST_MEMBERS:localhost:5701,localhost:5702,localhost:5703,localhost:5704,localhost:5705}
+  
+  # Kubernetes discovery settings
+  kubernetes:
+    enabled: ${HAZELCAST_KUBERNETES_ENABLED:false}
+    service-name: ${HAZELCAST_K8S_SERVICE_NAME:camel-cluster-service}
+    namespace: ${HAZELCAST_K8S_NAMESPACE:default}
+  
+  # Multicast discovery (for development)
+  multicast:
+    enabled: ${HAZELCAST_MULTICAST_ENABLED:false}
+    group: ${HAZELCAST_MULTICAST_GROUP:224.2.2.3}
+    port: ${HAZELCAST_MULTICAST_PORT:54327}
 
 # Coordinator specific configuration
 coordinator:
