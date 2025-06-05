@@ -28,6 +28,12 @@
             <artifactId>camel-activemq-starter</artifactId>
         </dependency>
 
+        <!-- Pooled JMS for connection pooling -->
+        <dependency>
+            <groupId>org.messaginghub</groupId>
+            <artifactId>pooled-jms</artifactId>
+        </dependency>
+
         <!-- Camel File component -->
         <dependency>
             <groupId>org.apache.camel</groupId>

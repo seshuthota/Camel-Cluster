@@ -1,0 +1,101 @@
+# Enhanced Logging Configuration for Cluster Failover Testing
+# This configuration provides detailed logging for all cluster activities
+
+logging:
+  level:
+    # Root level for general application logs
+    root: INFO
+    
+    # Application-specific detailed logging
+    com.example: DEBUG
+    com.example.cluster: TRACE
+    com.example.consumer: DEBUG
+    com.example.producer: DEBUG
+    com.example.coordinator: DEBUG
+    
+    # Camel framework logging
+    org.apache.camel: INFO
+    org.apache.camel.cluster: DEBUG
+    org.apache.camel.component: INFO
+    org.apache.camel.component.jms: DEBUG
+    org.apache.camel.component.file: DEBUG
+    org.apache.camel.processor: DEBUG
+    org.apache.camel.impl.engine: DEBUG
+    
+    # Hazelcast cluster logging
+    com.hazelcast: INFO
+    com.hazelcast.cluster: DEBUG
+    com.hazelcast.internal.cluster: DEBUG
+    com.hazelcast.spi.impl.eventservice: WARN
+    com.hazelcast.internal.diagnostics: WARN
+    
+    # Spring JMS and messaging
+    org.springframework.jms: DEBUG
+    org.springframework.jms.listener: DEBUG
+    org.springframework.transaction: DEBUG
+    
+    # ActiveMQ/Artemis logging
+    org.apache.activemq: INFO
+    org.apache.activemq.artemis: INFO
+    
+    # Database and JPA logging
+    org.springframework.orm.jpa: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    
+    # HTTP client logging for cluster communication
+    org.apache.http: INFO
+    org.springframework.web.client: DEBUG
+    
+  pattern:
+    # Enhanced console pattern with cluster information
+    console: "%clr(%d{yyyy-MM-dd HH:mm:ss.SSS}){faint} %clr(%5p){color} %clr(${PID:- }){magenta} %clr([%15.15t]){blue} %clr([%X{nodeId:-UNKNOWN}]){cyan} %clr([%X{clusterId:-NO-CLUSTER}]){yellow} %clr(%-40.40logger{39}){blue} %clr(:){faint} %m%n%xEx"
+    
+    # File pattern for detailed analysis
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [NodeId:%X{nodeId:-UNKNOWN}] [ClusterId:%X{clusterId:-NO-CLUSTER}] [TraceId:%X{traceId:-}] %logger{36} - %msg%n"
+  
+  # File appenders for persistent logging
+  file:
+    name: application.log
+    path: ./logs/
+    max-size: 100MB
+    max-history: 10
+    total-size-cap: 1GB
+
+# Additional configuration for cluster monitoring
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+  endpoint:
+    health:
+      show-details: always
+      show-components: always
+    loggers:
+      enabled: true
+  metrics:
+    distribution:
+      percentiles:
+        http.server.requests: 0.5,0.75,0.95,0.99
+        jvm.gc.pause: 0.5,0.75,0.95,0.99
+      percentiles-histogram:
+        http.server.requests: true
+    export:
+      prometheus:
+        enabled: true
+        step: 10s
+
+# Custom MDC (Mapped Diagnostic Context) properties
+mdc:
+  node-id: ${app.cluster.node-id:unknown}
+  cluster-id: ${hazelcast.cluster.name:unknown}
+  
+# Specific failover testing configurations
+failover:
+  monitoring:
+    enabled: true
+    interval: 5s
+    log-cluster-changes: true
+    log-message-routing: true
+    log-consumer-rebalancing: true 

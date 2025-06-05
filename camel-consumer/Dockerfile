@@ -6,7 +6,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
 # Copy the pre-built JAR
-COPY target/camel-consumer-*.jar app.jar
+COPY camel-consumer/target/camel-consumer-*.jar app.jar
 
 # Create directories for file operations
 RUN mkdir -p /app/data/input /app/data/output /app/data/processed

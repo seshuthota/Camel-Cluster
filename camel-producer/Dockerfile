@@ -6,7 +6,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
 # Copy the pre-built JAR
-COPY target/camel-producer-*.jar app.jar
+COPY camel-producer/target/camel-producer-*.jar app.jar
 
 # Create directories for file operations
 RUN mkdir -p /app/data/input /app/data/output /app/data/processed
